@@ -1,8 +1,11 @@
-package com.minhquan.myself;
+package com.minhquan.myself.Entity;
+
+import com.minhquan.myself.Main.GamePanel;
+import com.minhquan.myself.Main.KeyHandler;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
-import java.awt.image.BufferedImage;
+import java.awt.image.*;
 import java.io.IOException;
 
 public class Player {
@@ -18,6 +21,14 @@ public class Player {
     String direction = "down"; // Hướng mặc định ban đầu
     int spriteCounter = 0; // Đếm số frame để chuyển dáng
     int spriteNum = 0; // Chỉ số dáng (0, 1, 2, 3)
+
+    public boolean inGrass = false;
+    public BufferedImage grassOverlayImage;
+    public int grassCol = 0;
+    public int grassRow = 0;
+
+    public int lastCol = -1;
+    public int lastRow = -1;
 
     public Player(GamePanel gp, KeyHandler keyH) {
         this.gp = gp;
@@ -69,7 +80,9 @@ public class Player {
     public void update() {
         boolean isMoving = false;
 
+        // ==========================================
         // BƯỚC 1: KIỂM TRA XEM CÓ BẤM PHÍM KHÔNG VÀ LẤY HƯỚNG
+        // ==========================================
         if (keyHandler.upPressed || keyHandler.downPressed || keyHandler.leftPressed || keyHandler.rightPressed) {
 
             if (keyHandler.upPressed) {
@@ -83,11 +96,10 @@ public class Player {
             }
 
             // ==========================================
-            // BƯỚC 2: TÍNH TOÁN VÀ KIỂM TRA VA CHẠM (HITBOX CẢI TIẾN)
+            // BƯỚC 2: TÍNH TOÁN VÀ KIỂM TRA VA CHẠM (HITBOX)
             // ==========================================
             boolean collisionOn = false;
 
-            // Tính trước tọa độ X, Y nếu như nhân vật thực sự bước đi
             int nextX = x;
             int nextY = y;
             switch (direction) {
@@ -97,28 +109,20 @@ public class Player {
                 case "right": nextX += speed; break;
             }
 
-            // 1. TẠO HỘP VA CHẠM (HITBOX) CHO NHÂN VẬT
-            // Nhân vật vẽ ra là 48x48. Ta gọt bớt các phần không khí xung quanh,
-            // chỉ lấy phần thân dưới (từ bụng xuống gót chân) để làm khối va chạm rắn.
-            int solidLeft = nextX + 12;   // Thụt lề trái vào 12px
-            int solidRight = nextX + 36;  // Thụt lề phải vào 12px
-            int solidTop = nextY + 24;    // Chỉ lấy từ nửa thân dưới (bụng)
-            int solidBottom = nextY + 46; // Trừ đi 2px ở gót chân để di chuyển mượt không bị kẹt
+            int solidLeft = nextX + 12;
+            int solidRight = nextX + 36;
+            int solidTop = nextY + 24;
+            int solidBottom = nextY + 46;
 
-            // Kiểm tra lọt viền màn hình (Vòng an ninh 1)
             if (solidLeft < 0 || solidRight > gp.screenWidth ||
                     solidTop < 0 || solidBottom > gp.screenHeight) {
                 collisionOn = true;
-            }
-            else {
-                // 2. KIỂM TRA VẬT CẢN BẰNG 4 GÓC CỦA HITBOX (Vòng an ninh 2)
-                // Đổi tọa độ Pixel của 4 cạnh hộp sang tọa độ Ô lưới (Cột, Hàng)
+            } else {
                 int leftCol = solidLeft / gp.tileSize;
                 int rightCol = solidRight / gp.tileSize;
                 int topRow = solidTop / gp.tileSize;
                 int bottomRow = solidBottom / gp.tileSize;
 
-                // Tùy theo hướng đi, ta chỉ cần soi 2 góc ở phía trước mặt nhân vật
                 switch (direction) {
                     case "up":
                         if (gp.collisionMap[leftCol][topRow] != -1 || gp.collisionMap[rightCol][topRow] != -1) {
@@ -143,17 +147,53 @@ public class Player {
                 }
             }
 
+            // ==========================================
             // BƯỚC 3: DI CHUYỂN NẾU MỌI THỨ AN TOÀN
+            // ==========================================
             if (collisionOn == false) {
-                x = nextX; // Cập nhật thẳng tọa độ mới đã tính toán
+                x = nextX;
                 y = nextY;
+                isMoving = true; // Đánh dấu là nhân vật có thực sự nhúc nhích
+            }
+        } // <-- CHÚ Ý: Đóng ngoặc của if(bấm phím) ở đây
+
+        // ====================================================
+        // BƯỚC 4: LOGIC TÍNH TRỌNG TÂM, BỤI CỎ VÀ RANDOM ENCOUNTER
+        // ====================================================
+
+        // 1. Tính TÂM của nhân vật (Trục X) và GÓT CHÂN (Trục Y)
+        int centerX = x + (gp.tileSize / 2);
+        int bottomY = y + (int) (gp.tileSize * 0.9);
+
+        // 2. Quy đổi tọa độ Pixel ra tọa độ Cột/Hàng của map lưới
+        int currentCol = centerX / gp.tileSize;
+        int currentRow = bottomY / gp.tileSize;
+
+        // 3. Kiểm tra an toàn: Không soi ra ngoài lề bản đồ
+        if (currentCol >= 0 && currentCol < gp.maxScreenCol && currentRow >= 0 && currentRow < gp.maxScreenRow) {
+
+            // 4. Soi vào ma trận cỏ (0 là cỏ, -1 là đất)
+            if (gp.grassMap[currentCol][currentRow] == 0) {
+                inGrass = true;
+                grassCol = currentCol;
+                grassRow = currentRow;
+
+                // RANDOM ENCOUNTER: CHỈ TÍNH KHI BƯỚC SANG Ô MỚI
+                if (currentCol != lastCol || currentRow != lastRow) {
+                    checkWildEncounter();
+                }
+
+            } else {
+                inGrass = false;
             }
 
-            isMoving = true;
+            // CHỐT LẠI: LƯU TỌA ĐỘ HIỆN TẠI THÀNH "VẾT CHÂN CŨ" CHO FRAME TIẾP THEO
+            lastCol = currentCol;
+            lastRow = currentRow;
         }
 
         // ==========================================
-        // LOGIC CHUYỂN DÁNG (ANIMATION) - GIỮ NGUYÊN
+        // BƯỚC 5: LOGIC CHUYỂN DÁNG (ANIMATION)
         // ==========================================
         if (isMoving) {
             spriteCounter++;
@@ -165,28 +205,75 @@ public class Player {
                 spriteCounter = 0;
             }
         } else {
-            spriteNum = 0;
+            spriteNum = 0; // Đứng im thì trả về dáng số 0
         }
     }
 
-    public void draw(Graphics2D g2) {
-        BufferedImage image = null;
+        public void draw (Graphics2D g2){
+            if (sprites != null) {
+                int row = 0;
+                switch (direction) {
+                    case "down":
+                        row = 0;
+                        break;
+                    case "left":
+                        row = 1;
+                        break;
+                    case "right":
+                        row = 2;
+                        break;
+                    case "up":
+                        row = 3;
+                        break;
+                }
 
-        // 1. Xác định hàng dựa trên hướng
-        int row = 0;
-        switch (direction) {
-            case "down":  row = 0; break;
-            case "left":    row = 1; break;
-            case "right": row = 2; break;
-            case "up":  row = 3; break;
+                BufferedImage image = sprites[row][spriteNum];
+
+                // Nhân vật của bạn cao 48px (1.5 * 32)
+                int drawWidth = (int) (gp.tileSize * 1.5);
+                int drawHeight = (int) (gp.tileSize * 1.5);
+
+                // 1. VẼ NHÂN VẬT TRƯỚC
+                g2.drawImage(image, x, y, drawWidth, drawHeight, null);
+
+                // ====================================================
+                // 2. VẼ ĐÈ BỤI CỎ (CHỈ CHE PHẦN CHÂN)
+                // ====================================================
+                if (inGrass == true && grassOverlayImage != null) {
+
+                    // Tọa độ X của ô cỏ chốt theo lưới
+                    int overlayX = grassCol * gp.tileSize;
+
+                    // Tọa độ Y: Ta phải đẩy bụi cỏ xuống dưới gót chân
+                    // Thông thường, ta sẽ vẽ nó khớp với cạnh dưới của ô lưới
+                    int overlayY = grassRow * gp.tileSize;
+
+                    // MẸO: Vì nhân vật cao 48px, ta có thể hạ bụi cỏ xuống
+                    // để nó chỉ che khoảng 1/3 thân dưới của Brendan
+                    // Bạn có thể cộng thêm 4-8 pixel nếu muốn che sâu hơn
+                    int adjustmentY = 4;
+
+                    g2.drawImage(grassOverlayImage, overlayX, overlayY + adjustmentY, gp.tileSize, gp.tileSize, null);
+                }
+            }
         }
 
-        // 2. Lấy khung hình trực tiếp từ mảng đã cắt sẵn (nhanh và tối ưu hơn rất nhiều)
-        if (sprites != null) {
-            image = sprites[row][spriteNum];
-            int drawWidth = (int) (gp.tileSize * 1.5);  // To gấp rưỡi
-            int drawHeight = (int) (gp.tileSize * 1.5); // To gấp rưỡi
-            g2.drawImage(image, x, y, drawWidth, drawHeight, null);
+        // ====================================================
+        // HÀM XỬ LÝ TỈ LỆ GẶP POKEMON
+        // ====================================================
+        public void checkWildEncounter() {
+            java.util.Random random = new java.util.Random();
+            int chance = random.nextInt(100);
+
+            if (chance < 10) {
+                System.out.println("⚔️ [BỤP!!!] Chạm trán Pokémon hoang dã!");
+
+                // SỬA Ở ĐÂY: Đổi trạng thái game sang Chuyển cảnh
+                // (Khi trạng thái này bật, hàm update() sẽ không cho nhân vật đi nữa)
+                gp.gameState = gp.transitionState;
+                gp.startTransition();
+            } else {
+                System.out.println("🌿 Xào xạc... (Không có gì)");
+            }
         }
-    }
 }

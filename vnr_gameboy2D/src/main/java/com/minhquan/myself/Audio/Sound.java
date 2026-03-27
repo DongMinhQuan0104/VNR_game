@@ -1,4 +1,4 @@
-package com.minhquan.myself;
+package com.minhquan.myself.Audio;
 
 import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
